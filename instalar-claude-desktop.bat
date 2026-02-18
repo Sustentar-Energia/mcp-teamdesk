@@ -145,37 +145,33 @@ echo [3/7] Validando chave no servidor ForGreen...
 call :log "[3/7] Validando chave no servidor..."
 echo.
 
-:: Criar script Python temporario (evita problemas de one-liner com try/except)
-> "%TEMP%\mcp_validate.py" (
-    echo import urllib.request, urllib.error, json, sys
-    echo try:
-    echo     req = urllib.request.Request('!SETUP_URL!')
-    echo     req.add_header('X-API-Key', '!CHAVE_MCP!')
-    echo     with urllib.request.urlopen(req, timeout=15^) as resp:
-    echo         data = json.loads(resp.read(^).decode('utf-8'^)^)
-    echo         if data.get('valid'^):
-    echo             print('TOKEN=' + data['token']^)
-    echo             print('NAME=' + data.get('name', ''^)^)
-    echo             print('DBID=' + data.get('database_id', '101885'^)^)
-    echo             sys.exit(0^)
-    echo         else:
-    echo             print('Resposta invalida do servidor', file=sys.stderr^)
-    echo             sys.exit(1^)
-    echo except urllib.error.HTTPError as e:
-    echo     if e.code == 401:
-    echo         print('Chave MCP nao reconhecida pelo servidor.', file=sys.stderr^)
-    echo     elif e.code == 403:
-    echo         print('Chave MCP desativada. Contate o administrador.', file=sys.stderr^)
-    echo     else:
-    echo         print(f'Erro HTTP {e.code}', file=sys.stderr^)
-    echo     sys.exit(1^)
-    echo except Exception as e:
-    echo     print(f'Falha na conexao: {e}', file=sys.stderr^)
-    echo     sys.exit(1^)
-)
-
-python "%TEMP%\mcp_validate.py" > "%TEMP%\mcp_setup_result.txt" 2> "%TEMP%\mcp_setup_error.txt"
-del "%TEMP%\mcp_validate.py" >nul 2>&1
+python -c "
+import urllib.request, urllib.error, json, sys
+try:
+    req = urllib.request.Request('!SETUP_URL!')
+    req.add_header('X-API-Key', '!CHAVE_MCP!')
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+        if data.get('valid'):
+            print('TOKEN=' + data['token'])
+            print('NAME=' + data.get('name', ''))
+            print('DBID=' + data.get('database_id', '101885'))
+            sys.exit(0)
+        else:
+            print('Resposta invalida do servidor', file=sys.stderr)
+            sys.exit(1)
+except urllib.error.HTTPError as e:
+    if e.code == 401:
+        print('Chave MCP nao reconhecida pelo servidor.', file=sys.stderr)
+    elif e.code == 403:
+        print('Chave MCP desativada. Contate o administrador.', file=sys.stderr)
+    else:
+        print('Erro HTTP ' + str(e.code), file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print('Falha na conexao: ' + str(e), file=sys.stderr)
+    sys.exit(1)
+" > "%TEMP%\mcp_setup_result.txt" 2> "%TEMP%\mcp_setup_error.txt"
 
 if %errorlevel% neq 0 (
     echo  [ERRO] Chave MCP invalida ou servidor indisponivel.
