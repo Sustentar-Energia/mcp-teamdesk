@@ -65,20 +65,25 @@ echo.
 
 :: ============================================================
 :: [2/7] SOLICITAR CHAVE MCP
+:: [3/7] VALIDAR CHAVE E OBTER TOKEN
 :: ============================================================
+set "SETUP_URL=https://mcp.forgreen.com.br/setup"
+
+:solicitar_chave
 echo [2/7] Solicitar Chave MCP...
 echo.
 echo  Sua Chave MCP foi fornecida pelo administrador ForGreen.
 echo  Exemplo: nome_empresa_1234
 echo.
+set "CHAVE_MCP="
 set /p "CHAVE_MCP=  Digite sua Chave MCP: "
 
 :: Validar que nao esta vazia
 if "%CHAVE_MCP%"=="" (
     echo.
     echo  [ERRO] Chave MCP nao pode ser vazia.
-    pause
-    exit /b 1
+    echo.
+    goto :opcao_retry
 )
 
 :: Validar que nao tem espacos
@@ -86,21 +91,15 @@ echo %CHAVE_MCP% | findstr /r " " >nul
 if %errorlevel% equ 0 (
     echo.
     echo  [ERRO] Chave MCP nao pode conter espacos.
-    pause
-    exit /b 1
+    echo.
+    goto :opcao_retry
 )
 
 echo  [OK] Chave recebida
 echo.
 
-:: ============================================================
-:: [3/7] VALIDAR CHAVE E OBTER TOKEN
-:: ============================================================
 echo [3/7] Validando chave no servidor ForGreen...
 echo.
-
-:: Usar Python para chamar o endpoint /setup
-set "SETUP_URL=https://mcp.forgreen.com.br/setup"
 
 python -c "
 import urllib.request, urllib.error, json, sys
@@ -134,11 +133,9 @@ if %errorlevel% neq 0 (
     echo  [ERRO] Chave MCP invalida ou servidor indisponivel.
     type "%TEMP%\mcp_setup_error.txt"
     echo.
-    echo  Verifique sua chave e tente novamente.
     del "%TEMP%\mcp_setup_result.txt" >nul 2>&1
     del "%TEMP%\mcp_setup_error.txt" >nul 2>&1
-    pause
-    exit /b 1
+    goto :opcao_retry
 )
 
 :: Extrair valores do resultado
@@ -152,10 +149,35 @@ del "%TEMP%\mcp_setup_result.txt" >nul 2>&1
 del "%TEMP%\mcp_setup_error.txt" >nul 2>&1
 
 if "%USER_TOKEN%"=="" (
-    echo  [ERRO] Nao foi possivel obter o token. Tente novamente.
-    pause
-    exit /b 1
+    echo  [ERRO] Nao foi possivel obter o token.
+    echo.
+    goto :opcao_retry
 )
+
+:: Chave validada, pular o bloco de retry
+goto :chave_ok
+
+:opcao_retry
+echo  O que deseja fazer?
+echo.
+echo    [1] Tentar novamente com outra chave
+echo    [2] Encerrar instalacao
+echo.
+set "OPCAO="
+set /p "OPCAO=  Escolha (1 ou 2): "
+if "%OPCAO%"=="1" (
+    echo.
+    echo  -----------------------------------------------
+    echo.
+    goto :solicitar_chave
+)
+echo.
+echo  Instalacao cancelada pelo usuario.
+echo.
+pause
+exit /b 1
+
+:chave_ok
 
 echo  [OK] Bem-vindo, %USER_NAME%!
 echo  [OK] Token obtido com sucesso
