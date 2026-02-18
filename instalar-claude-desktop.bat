@@ -4,18 +4,53 @@ title MCP TeamDesk - Instalador para Claude Desktop
 
 :: ============================================================
 :: WRAPPER: Garante que o terminal NUNCA fecha sem o usuario ver
-:: Mesmo se o script crashar, o pause no final mantem aberto
 :: ============================================================
 set "LOG_DIR=%USERPROFILE%\mcp-teamdesk"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 set "LOG_FILE=%LOG_DIR%\install.log"
+set "VALIDATE_PY=%LOG_DIR%\validate_key.py"
 
 :: Limpar log anterior
 echo [%date% %time%] Inicio da instalacao > "%LOG_FILE%"
 
+:: Criar script de validacao ANTES do call :main
+:: (fora do enabledelayedexpansion, sem problemas de escaping)
+> "%VALIDATE_PY%" (
+    echo import urllib.request, urllib.error, json, sys
+    echo url = sys.argv[1]
+    echo key = sys.argv[2]
+    echo try:
+    echo     req = urllib.request.Request(url^)
+    echo     req.add_header('X-API-Key', key^)
+    echo     resp = urllib.request.urlopen(req, timeout=15^)
+    echo     data = json.loads(resp.read(^).decode('utf-8'^)^)
+    echo     if data.get('valid'^):
+    echo         print('TOKEN=' + data['token']^)
+    echo         print('NAME=' + data.get('name', ''^)^)
+    echo         print('DBID=' + data.get('database_id', '101885'^)^)
+    echo         sys.exit(0^)
+    echo     else:
+    echo         print('Resposta invalida do servidor', file=sys.stderr^)
+    echo         sys.exit(1^)
+    echo except urllib.error.HTTPError as e:
+    echo     if e.code == 401:
+    echo         print('Chave MCP nao reconhecida pelo servidor.', file=sys.stderr^)
+    echo     elif e.code == 403:
+    echo         print('Chave MCP desativada. Contate o administrador.', file=sys.stderr^)
+    echo     else:
+    echo         print('Erro HTTP ' + str(e.code^), file=sys.stderr^)
+    echo     sys.exit(1^)
+    echo except Exception as e:
+    echo     print('Falha na conexao: ' + str(e^), file=sys.stderr^)
+    echo     sys.exit(1^)
+)
+
 :: Chamar a logica principal como sub-rotina
 call :main
 set "EXIT_CODE=%errorlevel%"
+
+:: Limpar script temporario
+del "%VALIDATE_PY%" >nul 2>&1
 
 echo.
 if %EXIT_CODE% equ 0 (
@@ -127,16 +162,6 @@ if "!CHAVE_MCP!"=="" (
     goto :opcao_retry
 )
 
-:: Validar formato (sem espacos, via Python para evitar bugs do findstr)
-python -c "import sys; k='!CHAVE_MCP!'; sys.exit(1) if ' ' in k else sys.exit(0)" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo.
-    echo  [ERRO] Chave MCP nao pode conter espacos.
-    call :log "[ERRO] Chave MCP com espacos: !CHAVE_MCP!"
-    echo.
-    goto :opcao_retry
-)
-
 echo  [OK] Chave recebida
 call :log "[OK] Chave recebida: !CHAVE_MCP!"
 echo.
@@ -145,33 +170,8 @@ echo [3/7] Validando chave no servidor ForGreen...
 call :log "[3/7] Validando chave no servidor..."
 echo.
 
-python -c "
-import urllib.request, urllib.error, json, sys
-try:
-    req = urllib.request.Request('!SETUP_URL!')
-    req.add_header('X-API-Key', '!CHAVE_MCP!')
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
-        if data.get('valid'):
-            print('TOKEN=' + data['token'])
-            print('NAME=' + data.get('name', ''))
-            print('DBID=' + data.get('database_id', '101885'))
-            sys.exit(0)
-        else:
-            print('Resposta invalida do servidor', file=sys.stderr)
-            sys.exit(1)
-except urllib.error.HTTPError as e:
-    if e.code == 401:
-        print('Chave MCP nao reconhecida pelo servidor.', file=sys.stderr)
-    elif e.code == 403:
-        print('Chave MCP desativada. Contate o administrador.', file=sys.stderr)
-    else:
-        print('Erro HTTP ' + str(e.code), file=sys.stderr)
-    sys.exit(1)
-except Exception as e:
-    print('Falha na conexao: ' + str(e), file=sys.stderr)
-    sys.exit(1)
-" > "%TEMP%\mcp_setup_result.txt" 2> "%TEMP%\mcp_setup_error.txt"
+:: Executar script de validacao (criado antes do call :main)
+python "%VALIDATE_PY%" "!SETUP_URL!" "!CHAVE_MCP!" > "%TEMP%\mcp_setup_result.txt" 2> "%TEMP%\mcp_setup_error.txt"
 
 if %errorlevel% neq 0 (
     echo  [ERRO] Chave MCP invalida ou servidor indisponivel.
@@ -255,7 +255,7 @@ if exist "%USERPROFILE%\.claude\mcp-teamdesk" (
 :: Limpar entrada teamdesk do claude_desktop_config.json (se existir)
 set "CLAUDE_CONFIG=%APPDATA%\Claude\claude_desktop_config.json"
 if exist "!CLAUDE_CONFIG!" (
-    python -c "import json, sys; f=open(r'!CLAUDE_CONFIG!','r',encoding='utf-8'); config=json.load(f); f.close(); servers=config.get('mcpServers',{}); removed='teamdesk' in servers; servers.pop('teamdesk',None); config['mcpServers']=servers; f=open(r'!CLAUDE_CONFIG!','w',encoding='utf-8'); json.dump(config,f,indent=2,ensure_ascii=False); f.close(); print(' [OK] Entrada teamdesk antiga removida' if removed else ' [OK] Nenhuma config anterior do teamdesk')" 2>&1
+    python -c "import json; f=open(r'!CLAUDE_CONFIG!','r',encoding='utf-8'); config=json.load(f); f.close(); servers=config.get('mcpServers',{}); removed='teamdesk' in servers; servers.pop('teamdesk',None); config['mcpServers']=servers; f=open(r'!CLAUDE_CONFIG!','w',encoding='utf-8'); json.dump(config,f,indent=2,ensure_ascii=False); f.close(); print(' [OK] Entrada teamdesk antiga removida' if removed else ' [OK] Nenhuma config anterior do teamdesk')" 2>&1
     call :log "[OK] Config Claude Desktop limpa"
 ) else (
     echo  [OK] Nenhuma configuracao anterior encontrada
@@ -340,7 +340,7 @@ for /f "delims=" %%i in ('where python') do (
 call :log "Python path: !PYTHON_PATH!"
 
 :: Usar Python para fazer merge JSON (preservar outros MCPs)
-python -c "import json, os, sys; config_path=r'!CLAUDE_CONFIG!'; python_path=r'!PYTHON_PATH!'; server_path=r'!INSTALL_DIR!\server.py'; token='!USER_TOKEN!'; db_id='!DATABASE_ID!'; config={}; exec('try:\n with open(config_path,\"r\",encoding=\"utf-8\") as f: config=json.load(f)\nexcept: pass') if os.path.exists(config_path) else None; config.setdefault('mcpServers',{}); config['mcpServers']['teamdesk']={'command':python_path,'args':[server_path],'env':{'TEAMDESK_API_TOKEN':token,'TEAMDESK_DATABASE_ID':db_id}}; f=open(config_path,'w',encoding='utf-8'); json.dump(config,f,indent=2,ensure_ascii=False); f.close(); print(' [OK] Claude Desktop configurado'); print(f'      Arquivo: {config_path}')" 2>&1
+python -c "import json,os;p=r'!CLAUDE_CONFIG!';c=json.load(open(p,'r',encoding='utf-8')) if os.path.exists(p) else {};c.setdefault('mcpServers',{});c['mcpServers']['teamdesk']={'command':r'!PYTHON_PATH!','args':[r'!INSTALL_DIR!\server.py'],'env':{'TEAMDESK_API_TOKEN':'!USER_TOKEN!','TEAMDESK_DATABASE_ID':'!DATABASE_ID!'}};json.dump(c,open(p,'w',encoding='utf-8'),indent=2,ensure_ascii=False);print(' [OK] Claude Desktop configurado');print('      Arquivo: '+p)" 2>&1
 
 if %errorlevel% neq 0 (
     echo  [ERRO] Falha ao configurar Claude Desktop.
@@ -358,7 +358,7 @@ call :log "[7/7] Testando instalacao"
 echo.
 
 :: Testar se o server.py inicia sem erros (importacao + config)
-python -c "import os, sys; os.environ['TEAMDESK_API_TOKEN']='!USER_TOKEN!'; os.environ['TEAMDESK_DATABASE_ID']='!DATABASE_ID!'; compile(open(r'!INSTALL_DIR!\server.py',encoding='utf-8').read(),'server.py','exec'); print(' [OK] server.py valido (sem erros de sintaxe)'); import mcp; print(' [OK] Pacote mcp instalado'); print(' [OK] Teste concluido com sucesso')" 2>&1
+python -c "import os,sys;os.environ['TEAMDESK_API_TOKEN']='!USER_TOKEN!';os.environ['TEAMDESK_DATABASE_ID']='!DATABASE_ID!';compile(open(r'!INSTALL_DIR!\server.py',encoding='utf-8').read(),'server.py','exec');print(' [OK] server.py valido (sem erros de sintaxe)');import mcp;print(' [OK] Pacote mcp instalado');print(' [OK] Teste concluido com sucesso')" 2>&1
 
 if %errorlevel% neq 0 (
     echo.
