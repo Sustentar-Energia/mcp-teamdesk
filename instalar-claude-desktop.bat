@@ -127,9 +127,9 @@ if "!CHAVE_MCP!"=="" (
     goto :opcao_retry
 )
 
-:: Validar que nao tem espacos
-echo !CHAVE_MCP! | findstr /r " " >nul
-if %errorlevel% equ 0 (
+:: Validar formato (sem espacos, via Python para evitar bugs do findstr)
+python -c "import sys; k='!CHAVE_MCP!'; sys.exit(1) if ' ' in k else sys.exit(0)" >nul 2>&1
+if %errorlevel% neq 0 (
     echo.
     echo  [ERRO] Chave MCP nao pode conter espacos.
     call :log "[ERRO] Chave MCP com espacos: !CHAVE_MCP!"
@@ -145,16 +145,47 @@ echo [3/7] Validando chave no servidor ForGreen...
 call :log "[3/7] Validando chave no servidor..."
 echo.
 
-python -c "import urllib.request, urllib.error, json, sys; req = urllib.request.Request('!SETUP_URL!'); req.add_header('X-API-Key', '!CHAVE_MCP!'); resp = urllib.request.urlopen(req, timeout=15); data = json.loads(resp.read().decode('utf-8')); print('TOKEN=' + data['token']) if data.get('valid') else sys.exit(1); print('NAME=' + data.get('name', '')); print('DBID=' + data.get('database_id', '101885'))" > "%TEMP%\mcp_setup_result.txt" 2> "%TEMP%\mcp_setup_error.txt"
+:: Criar script Python temporario (evita problemas de one-liner com try/except)
+> "%TEMP%\mcp_validate.py" (
+    echo import urllib.request, urllib.error, json, sys
+    echo try:
+    echo     req = urllib.request.Request('!SETUP_URL!')
+    echo     req.add_header('X-API-Key', '!CHAVE_MCP!')
+    echo     with urllib.request.urlopen(req, timeout=15^) as resp:
+    echo         data = json.loads(resp.read(^).decode('utf-8'^)^)
+    echo         if data.get('valid'^):
+    echo             print('TOKEN=' + data['token']^)
+    echo             print('NAME=' + data.get('name', ''^)^)
+    echo             print('DBID=' + data.get('database_id', '101885'^)^)
+    echo             sys.exit(0^)
+    echo         else:
+    echo             print('Resposta invalida do servidor', file=sys.stderr^)
+    echo             sys.exit(1^)
+    echo except urllib.error.HTTPError as e:
+    echo     if e.code == 401:
+    echo         print('Chave MCP nao reconhecida pelo servidor.', file=sys.stderr^)
+    echo     elif e.code == 403:
+    echo         print('Chave MCP desativada. Contate o administrador.', file=sys.stderr^)
+    echo     else:
+    echo         print(f'Erro HTTP {e.code}', file=sys.stderr^)
+    echo     sys.exit(1^)
+    echo except Exception as e:
+    echo     print(f'Falha na conexao: {e}', file=sys.stderr^)
+    echo     sys.exit(1^)
+)
+
+python "%TEMP%\mcp_validate.py" > "%TEMP%\mcp_setup_result.txt" 2> "%TEMP%\mcp_setup_error.txt"
+del "%TEMP%\mcp_validate.py" >nul 2>&1
 
 if %errorlevel% neq 0 (
     echo  [ERRO] Chave MCP invalida ou servidor indisponivel.
     call :log "[ERRO] Validacao falhou para chave: !CHAVE_MCP!"
     if exist "%TEMP%\mcp_setup_error.txt" (
         echo.
-        echo  Detalhes do erro:
-        type "%TEMP%\mcp_setup_error.txt"
-        for /f "usebackq delims=" %%e in ("%TEMP%\mcp_setup_error.txt") do call :log "  Detalhe: %%e"
+        for /f "usebackq delims=" %%e in ("%TEMP%\mcp_setup_error.txt") do (
+            echo         %%e
+            call :log "  Detalhe: %%e"
+        )
     )
     echo.
     del "%TEMP%\mcp_setup_result.txt" >nul 2>&1
