@@ -69,7 +69,7 @@ echo.
 echo [2/7] Solicitar Chave MCP...
 echo.
 echo  Sua Chave MCP foi fornecida pelo administrador ForGreen.
-echo  Exemplo: daniel_forgreen_1982
+echo  Exemplo: nome_empresa_1234
 echo.
 set /p "CHAVE_MCP=  Digite sua Chave MCP: "
 
